@@ -213,8 +213,8 @@ export default function App() {
       const rows = text.split('\n').filter(row => row.trim() !== '');
       
       const parsedData = rows.map(row => {
-        // Pemisahan koma biasa, abaikan yang kosong
-        const cols = row.split(',').map(c => c.trim());
+        // Pemisahan koma ATAU titik koma agar support format Excel Indonesia maupun US
+        const cols = row.split(/[,;]/).map(c => c.trim());
         return { nama: cols[0] || '', tipe: cols[1] || '', keterangan: cols[2] || '' };
       }).filter(item => item.nama && item.nama.toLowerCase() !== 'nama'); // Hilangkan baris header jika ada
 
@@ -234,8 +234,9 @@ export default function App() {
   };
 
   const downloadContohCSV = () => {
-    // Format wajib CSV dengan koma (masing-masing jadi kolom terpisah di Excel)
-    const csvContent = "Nama,Tipe Kategori,Keterangan/Kelas\nBunga Dinda Sabrina,Siswa,XII Keperawatan\nLae Isriyana Nur Laela S.Kep.,Guru,Guru Keperawatan\nNuryadin S.Sos. M.Pd.,Kepsek,Kepala Sekolah";
+    // Format wajib CSV menggunakan titik koma (;) agar rapi dan terpisah kolomnya di Excel regional Indonesia
+    // Ditambahkan \uFEFF (Byte Order Mark) agar Excel mengenali format UTF-8 dengan benar
+    const csvContent = "\uFEFFNama;Tipe Kategori;Keterangan/Kelas\nBunga Dinda Sabrina;Siswa;XII Keperawatan\nLae Isriyana Nur Laela S.Kep.;Guru;Guru Keperawatan\nNuryadin S.Sos. M.Pd.;Kepsek;Kepala Sekolah";
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -796,7 +797,7 @@ export default function App() {
                     <label className="block text-sm font-semibold text-gray-700 mb-2">2. Upload Data Master CSV (Siswa & Guru)</label>
                     <p className="text-xs text-gray-600 mb-3 text-justify">
                         Upload file berekstensi <b>.csv</b> agar saat mengetik nama di form surat, jabatan atau kelasnya terisi otomatis. 
-                        Pastikan file berisi 3 kolom terpisah (koma) dengan format: <b>Nama, Kategori, Jabatan/Kelas</b>.
+                        Pastikan file berisi 3 kolom terpisah (koma atau titik koma) dengan format: <b>Nama, Kategori, Jabatan/Kelas</b>.
                     </p>
                     
                     <div className="flex flex-col gap-2">
