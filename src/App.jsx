@@ -74,10 +74,10 @@ export default function App() {
     waktuKegiatan: '08.00 WIB s.d. Selesai',
     tempatKegiatan: 'SMK Negeri 1 Purworejo',
     acara: 'Technical Meeting LKS', 
-    namaKeterangan: 'Bunga Dinda Sabrina',
+    namaKeterangan: '',
     ttlKeterangan: 'Purworejo, 15 Agustus 2008',
-    identitasKeterangan: '212210001 (NIS)',
-    kelasJabatanKeterangan: 'XII Keperawatan',
+    identitasKeterangan: '',
+    kelasJabatanKeterangan: '',
     isiKeterangan: 'Adalah benar-benar siswa aktif SMK Kesehatan Purworejo pada Tahun Pelajaran 2025/2026 dan berkelakuan baik.',
     lampiran: '-',
     hal: 'Undangan Rapat Wali Murid',
@@ -88,7 +88,7 @@ export default function App() {
   });
 
   const [personil, setPersonil] = useState([
-    { id: 1, nama: 'Lae Isriyana Nur Laela, S.Kep.', jabatan: 'Guru Keperawatan', keterangan: 'Pendamping' }
+    { id: 1, nama: '', jabatan: '', keterangan: 'Pendamping' }
   ]);
 
   const [listSurat, setListSurat] = useState([]);
@@ -173,19 +173,56 @@ export default function App() {
     window.location.reload();
   };
 
-  // UPLOAD LOGO (Preview Lokal)
+  // UPLOAD LOGO DENGAN KOMPRESI AGAR BISA MASUK FIREBASE
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      setLogoUrl(event.target.result); // Update UI langsung
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        // Kompresi logo menggunakan Canvas HTML5
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600; // Resolusi cukup untuk dokumen
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const compressedBase64 = canvas.toDataURL('image/png', 0.8);
+        setLogoUrl(compressedBase64); // Update UI
+        
+        // Simpan otomatis ke Firebase
+        if (db) {
+            try {
+              await setDoc(getSettingsDoc('logo_sekolah'), { 
+                image: compressedBase64,
+                width: logoWidth,
+                offsetX: logoOffsetX,
+                offsetY: logoOffsetY
+              }, { merge: true });
+              showNotification('success', 'Logo berhasil diunggah & tersimpan di database!');
+            } catch (error) {
+              console.error("Gagal save logo", error);
+              showNotification('error', 'Gagal menyimpan logo ke database. Pastikan koneksi aman.');
+            }
+        }
+      };
+      img.src = event.target.result;
     };
-    reader.readAsDataURL(file); // Konversi gambar ke text base64
+    reader.readAsDataURL(file);
   };
 
-  // SIMPAN PENGATURAN LOGO KE FIREBASE
+  // SIMPAN PENGATURAN POSISI & UKURAN LOGO KE FIREBASE
   const simpanPengaturanLogo = async () => {
     if (!db) { showNotification('error', 'Database belum terhubung.'); return; }
     try {
@@ -194,15 +231,14 @@ export default function App() {
         width: logoWidth,
         offsetX: logoOffsetX,
         offsetY: logoOffsetY
-      });
-      showNotification('success', 'Pengaturan & Ukuran Logo permanen berhasil disimpan ke Firebase!');
+      }, { merge: true });
+      showNotification('success', 'Ukuran & Posisi Logo permanen berhasil disimpan!');
     } catch (error) {
-      console.error("Gagal save logo", error);
       showNotification('error', 'Gagal menyimpan pengaturan logo ke database.');
     }
   };
 
-  // UPLOAD CSV KE FIREBASE
+  // UPLOAD CSV KE FIREBASE (Dengan Parser yang Cerdas)
   const handleCsvUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -214,9 +250,14 @@ export default function App() {
       
       const parsedData = rows.map(row => {
         // Pemisahan koma ATAU titik koma agar support format Excel Indonesia maupun US
-        const cols = row.split(/[,;]/).map(c => c.trim());
-        return { nama: cols[0] || '', tipe: cols[1] || '', keterangan: cols[2] || '' };
-      }).filter(item => item.nama && item.nama.toLowerCase() !== 'nama'); // Hilangkan baris header jika ada
+        const cols = row.split(/[,;]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+        return { 
+            nama: cols[0] || '', 
+            tipe: cols[1] || '', 
+            identitas: cols[2] || '', // NIS/NIP
+            keterangan: cols[3] || '' // Jabatan/Kelas
+        };
+      }).filter(item => item.nama && item.nama.toLowerCase() !== 'nama'); // Hilangkan baris header
 
       setMasterData(parsedData);
       
@@ -234,9 +275,8 @@ export default function App() {
   };
 
   const downloadContohCSV = () => {
-    // Format wajib CSV menggunakan titik koma (;) agar rapi dan terpisah kolomnya di Excel regional Indonesia
-    // Ditambahkan \uFEFF (Byte Order Mark) agar Excel mengenali format UTF-8 dengan benar
-    const csvContent = "\uFEFFNama;Tipe Kategori;Keterangan/Kelas\nBunga Dinda Sabrina;Siswa;XII Keperawatan\nLae Isriyana Nur Laela S.Kep.;Guru;Guru Keperawatan\nNuryadin S.Sos. M.Pd.;Kepsek;Kepala Sekolah";
+    // Format wajib CSV menggunakan titik koma (;) agar rapi dan terpisah 4 kolom di Excel
+    const csvContent = "\uFEFFNama;Kategori;NIS/NIP;Jabatan/Kelas\nBunga Dinda Sabrina;Siswa;212210001;XII Keperawatan\nLae Isriyana Nur Laela S.Kep.;Guru;199001012020122001;Guru Keperawatan\nNuryadin S.Sos. M.Pd.;Kepsek;198001012010121001;Kepala Sekolah";
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -292,7 +332,7 @@ export default function App() {
         await addDoc(collRef, dataToSave);
         showNotification('success', 'Berhasil disimpan ke Database!');
       }
-      loadDataUtama();
+      loadDataUtama(); // Refresh list History
     } catch (error) {
       console.error("Gagal menyimpan:", error);
       showNotification('error', 'Gagal menyimpan. Periksa aturan akses.');
@@ -313,30 +353,34 @@ export default function App() {
     }
   };
 
-  // Handler cerdas: jika memilih dari Autocomplete CSV, otomatis isi field relevannya
+  // LOGIKA ISI OTOMATIS (AUTOFILL) UNTUK FORM UMUM (Surat Keterangan, dsb)
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     let updates = { [name]: value };
 
-    // Autofill jika ada di Master Data (Contoh: Nama di form keterangan)
+    // Mengecek apakah user baru saja memilih nama dari Autocomplete Datalist
     if (name === 'namaKeterangan') {
-      const match = masterData.find(d => d.nama === value);
+      const match = masterData.find(d => d.nama.toLowerCase() === value.toLowerCase());
       if (match) {
-        updates.kelasJabatanKeterangan = match.keterangan;
+        updates.identitasKeterangan = match.identitas;      // Otomatis isi NIS/NIP
+        updates.kelasJabatanKeterangan = match.keterangan;  // Otomatis isi Kelas/Jabatan
       }
     }
 
     setFormData({ ...formData, ...updates });
   };
 
+  // LOGIKA ISI OTOMATIS (AUTOFILL) UNTUK PERSONIL SURAT TUGAS
   const handlePersonilChange = (id, field, value) => {
     setPersonil(personil.map(p => {
       if (p.id === id) {
         let updates = { ...p, [field]: value };
-        // Autofill untuk Personil
         if (field === 'nama') {
-            const match = masterData.find(d => d.nama === value);
-            if (match) updates.jabatan = match.keterangan;
+            const match = masterData.find(d => d.nama.toLowerCase() === value.toLowerCase());
+            if (match) {
+                // Untuk personil surat tugas, kita butuh jabatannya.
+                updates.jabatan = match.keterangan;
+            }
         }
         return updates;
       }
@@ -377,10 +421,10 @@ export default function App() {
                   <div className="absolute top-2 right-2 cursor-pointer text-red-500 hover:text-red-700" onClick={() => hapusPersonil(p.id)}>
                     <Trash2 size={16} />
                   </div>
-                  <input type="text" placeholder="Nama Lengkap (Ketik untuk memunculkan saran)" list="guru-list" value={p.nama} onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)} 
-                    className="w-full text-sm border border-gray-300 rounded-md p-2 mb-2" />
+                  <input type="text" placeholder="Ketik/Pilih Nama Guru..." list="guru-list" value={p.nama} onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)} 
+                    className="w-full text-sm border border-gray-300 rounded-md p-2 mb-2 bg-yellow-50 focus:bg-white transition-colors" />
                   <div className="grid grid-cols-2 gap-2">
-                    <input type="text" placeholder="Jabatan/Guru..." value={p.jabatan} onChange={(e) => handlePersonilChange(p.id, 'jabatan', e.target.value)} 
+                    <input type="text" placeholder="Jabatan Otomatis..." value={p.jabatan} onChange={(e) => handlePersonilChange(p.id, 'jabatan', e.target.value)} 
                       className="w-full text-sm border border-gray-300 rounded-md p-2" />
                     <input type="text" placeholder="Keterangan Tgs..." value={p.keterangan} onChange={(e) => handlePersonilChange(p.id, 'keterangan', e.target.value)} 
                       className="w-full text-sm border border-gray-300 rounded-md p-2" />
@@ -421,7 +465,7 @@ export default function App() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nama (Siswa/Pegawai)</label>
               <input type="text" name="namaKeterangan" list="siswa-guru-list" value={formData.namaKeterangan} onChange={handleInputChange} 
-                className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Ketik nama (muncul saran CSV)..."/>
+                className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500 bg-yellow-50 focus:bg-white transition-colors" placeholder="Ketik nama (Identitas & Kelas otomatis isi)..."/>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tempat, Tanggal Lahir</label>
@@ -432,12 +476,12 @@ export default function App() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">NIS / NIP / Identitas</label>
                 <input type="text" name="identitasKeterangan" value={formData.identitasKeterangan} onChange={handleInputChange} 
-                  className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" />
+                  className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Terisi Otomatis..." />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Kelas / Jabatan</label>
                 <input type="text" name="kelasJabatanKeterangan" value={formData.kelasJabatanKeterangan} onChange={handleInputChange} 
-                  className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" />
+                  className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Terisi Otomatis..." />
               </div>
             </div>
             <div>
@@ -796,8 +840,8 @@ export default function App() {
                 <div className="border-t border-gray-200 pt-5">
                     <label className="block text-sm font-semibold text-gray-700 mb-2">2. Upload Data Master CSV (Siswa & Guru)</label>
                     <p className="text-xs text-gray-600 mb-3 text-justify">
-                        Upload file berekstensi <b>.csv</b> agar saat mengetik nama di form surat, jabatan atau kelasnya terisi otomatis. 
-                        Pastikan file berisi 3 kolom terpisah (koma atau titik koma) dengan format: <b>Nama, Kategori, Jabatan/Kelas</b>.
+                        Upload file <b>.csv</b> agar pengisian Form Surat Keterangan / Tugas jadi otomatis. 
+                        Pastikan file berisi 4 kolom terpisah dengan format berurutan: <b>Nama; Kategori; NIS/NIP; Jabatan/Kelas</b>.
                     </p>
                     
                     <div className="flex flex-col gap-2">
