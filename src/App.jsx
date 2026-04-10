@@ -177,34 +177,65 @@ export default function App() {
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
+    // Validasi ukuran file awal (maks 5MB sebelum kompresi)
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('error', 'File logo terlalu besar (maks 5MB). Gunakan file yang lebih kecil.');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
       img.onload = async () => {
         // Kompresi logo menggunakan Canvas HTML5
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 600; // Resolusi cukup untuk dokumen
+        const MAX_WIDTH = 400; // Resolusi cukup untuk kop surat
         let width = img.width;
         let height = img.height;
-        
+
         if (width > MAX_WIDTH) {
           height = Math.round((height * MAX_WIDTH) / width);
           width = MAX_WIDTH;
         }
-        
+
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        
-        const compressedBase64 = canvas.toDataURL('image/png', 0.8);
+
+        // Gunakan JPEG untuk kompresi yang lebih efektif (PNG mengabaikan parameter kualitas)
+        let compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+        // Jika hasil masih terlalu besar (>800KB), kompres lebih agresif
+        if (compressedBase64.length > 800 * 1024) {
+          const smallerCanvas = document.createElement('canvas');
+          const SMALLER_WIDTH = 250;
+          let sw = width;
+          let sh = height;
+          if (sw > SMALLER_WIDTH) {
+            sh = Math.round((sh * SMALLER_WIDTH) / sw);
+            sw = SMALLER_WIDTH;
+          }
+          smallerCanvas.width = sw;
+          smallerCanvas.height = sh;
+          const sctx = smallerCanvas.getContext('2d');
+          sctx.drawImage(img, 0, 0, sw, sh);
+          compressedBase64 = smallerCanvas.toDataURL('image/jpeg', 0.5);
+        }
+
+        // Cek final: Firestore punya batas dokumen 1MB
+        if (compressedBase64.length > 900 * 1024) {
+          showNotification('error', 'Logo masih terlalu besar setelah kompresi. Gunakan gambar dengan resolusi lebih kecil.');
+          return;
+        }
+
         setLogoUrl(compressedBase64); // Update UI
-        
+
         // Simpan otomatis ke Firebase
         if (db) {
             try {
-              await setDoc(getSettingsDoc('logo_sekolah'), { 
+              await setDoc(getSettingsDoc('logo_sekolah'), {
                 image: compressedBase64,
                 width: logoWidth,
                 offsetX: logoOffsetX,
@@ -213,7 +244,7 @@ export default function App() {
               showNotification('success', 'Logo berhasil diunggah & tersimpan di database!');
             } catch (error) {
               console.error("Gagal save logo", error);
-              showNotification('error', 'Gagal menyimpan logo ke database. Pastikan koneksi aman.');
+              showNotification('error', 'Gagal menyimpan logo ke database: ' + (error.message || 'Pastikan koneksi aman.'));
             }
         }
       };
