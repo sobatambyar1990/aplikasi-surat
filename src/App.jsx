@@ -4,6 +4,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, where } from 'firebase/firestore';
 
+/* global __firebase_config, __app_id */
+
 // ============================================================================
 // INISIALISASI FIREBASE DENGAN DUKUNGAN MANUAL INPUT VIA UI
 // ============================================================================
