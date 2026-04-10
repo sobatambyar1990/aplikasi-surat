@@ -51,7 +51,7 @@ try {
 
 export default function App() {
   const [jenisSurat, setJenisSurat] = useState('TUGAS');
-  const [logoUrl, setLogoUrl] = useState('logo smk.png');
+  const [logoUrl, setLogoUrl] = useState('/logo-smk.png');
   const [showFirebaseSettings, setShowFirebaseSettings] = useState(false);
   const [tempConfig, setTempConfig] = useState(firebaseConfig);
 
