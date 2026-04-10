@@ -151,6 +151,7 @@ export default function App() {
 
   useEffect(() => {
     if (user) loadSurat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const showNotification = (type, message) => {
