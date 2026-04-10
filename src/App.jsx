@@ -352,7 +352,6 @@ export default function App() {
 
   // Pisahkan Master Data untuk Datalist Autocomplete
   const guruList = masterData.filter(d => d.tipe.toLowerCase().includes('guru') || d.tipe.toLowerCase().includes('kepsek'));
-  const siswaList = masterData.filter(d => d.tipe.toLowerCase().includes('siswa'));
 
   const renderFormFields = () => {
     switch (jenisSurat) {
