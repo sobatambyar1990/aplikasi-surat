@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, Plus, Trash2, FileText, Mail, Info, Send, Save, CheckCircle, AlertCircle, Edit, X, Settings } from 'lucide-react';
+import { Printer, Plus, Trash2, FileText, Mail, Info, Send, Save, CheckCircle, AlertCircle, Edit, X, Settings, Upload, Database, Download } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, where } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, where, setDoc, getDoc } from 'firebase/firestore';
 
 /* global __firebase_config, __app_id */
 
@@ -23,13 +23,11 @@ let firebaseConfig = { ...DEFAULT_FIREBASE_CONFIG };
 let isCanvas = false;
 let canvasAppId = 'default-app-id';
 
-// 1. Cek apakah ada konfigurasi manual yang disimpan user di Local Storage
 try {
   const savedConfig = localStorage.getItem('customFirebaseConfig');
   if (savedConfig) {
     firebaseConfig = JSON.parse(savedConfig);
   } else if (typeof __firebase_config !== 'undefined') {
-    // 2. Jika tidak ada custom, cek apakah di dalam Canvas Preview
     firebaseConfig = JSON.parse(__firebase_config);
     isCanvas = true;
     if (typeof __app_id !== 'undefined') {
@@ -40,7 +38,6 @@ try {
   console.error("Gagal membaca konfigurasi Firebase:", error);
 }
 
-// Inisialisasi Firebase secara aman (menangkap error jika config manual salah)
 let app, auth, db, initError;
 try {
   app = initializeApp(firebaseConfig);
@@ -52,39 +49,36 @@ try {
 }
 
 export default function App() {
-  // State untuk jenis surat yang dipilih
   const [jenisSurat, setJenisSurat] = useState('TUGAS');
   
-  // LOGO PATEN: Gunakan path langsung ke folder public Netlify Anda
-  const LOGO_URL = "/logo smk.png";
+  // State untuk Logo dan Settingannya
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoWidth, setLogoWidth] = useState(96); // Default 96px
+  const [logoOffsetX, setLogoOffsetX] = useState(0); // Posisi X (Kiri/Kanan)
+  const [logoOffsetY, setLogoOffsetY] = useState(0); // Posisi Y (Atas/Bawah)
+  
+  // State untuk Data Master CSV
+  const [masterData, setMasterData] = useState([]);
 
-  // State untuk Modal Pengaturan Firebase
   const [showFirebaseSettings, setShowFirebaseSettings] = useState(false);
+  const [showDataMasterModal, setShowDataMasterModal] = useState(false);
   const [tempConfig, setTempConfig] = useState(firebaseConfig);
 
-  // State untuk form surat umum dan spesifik
   const [formData, setFormData] = useState({
-    // Umum
     nomorSurat: '001/ST/I/SMK-KES-PWR/2026',
     tanggalSurat: '10 Januari 2026',
     kepalaSekolah: 'Nuryadin, S.Sos., M.Pd.',
-
-    // Surat Tugas
     dasarTugas: 'Undangan dari Panitia Pelaksanaan Lomba Kompetensi Siswa (LKS) SMK Tingkat Kabupaten Purworejo Tahun 2026',
     kegiatan: 'Mendampingi siswa dalam kegiatan Technical Meeting Lomba LKS',
     hariTanggalKegiatan: 'Senin, 12 Januari 2026',
     waktuKegiatan: '08.00 WIB s.d. Selesai',
     tempatKegiatan: 'SMK Negeri 1 Purworejo',
     acara: 'Technical Meeting LKS', 
-
-    // Surat Keterangan
     namaKeterangan: 'Bunga Dinda Sabrina',
     ttlKeterangan: 'Purworejo, 15 Agustus 2008',
     identitasKeterangan: '212210001 (NIS)',
     kelasJabatanKeterangan: 'XII Keperawatan',
     isiKeterangan: 'Adalah benar-benar siswa aktif SMK Kesehatan Purworejo pada Tahun Pelajaran 2025/2026 dan berkelakuan baik.',
-
-    // Surat Undangan / Permohonan
     lampiran: '-',
     hal: 'Undangan Rapat Wali Murid',
     tujuanSurat: 'Yth. Bapak/Ibu Orang Tua Wali Murid Kelas X\ndi Tempat',
@@ -93,36 +87,26 @@ export default function App() {
     isiPermohonan: 'Dengan hormat,\nSehubungan dengan akan dilaksanakannya kegiatan Praktik Kerja Lapangan (PKL) Siswa SMK Kesehatan Purworejo Tahun Pelajaran 2025/2026, kami memohon kesediaan Bapak/Ibu untuk dapat menerima siswa kami melaksanakan PKL di instansi yang Bapak/Ibu pimpin.\n\nDemikian surat permohonan ini kami sampaikan. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.',
   });
 
-  // State untuk daftar orang yang ditugaskan
   const [personil, setPersonil] = useState([
     { id: 1, nama: 'Lae Isriyana Nur Laela, S.Kep.', jabatan: 'Guru Keperawatan', keterangan: 'Pendamping' }
   ]);
 
-  // State Data History & Edit
   const [listSurat, setListSurat] = useState([]);
   const [editingId, setEditingId] = useState(null);
-
-  // State Firebase & Notifikasi
   const [user, setUser] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
 
-  // Inisialisasi Auth Firebase
   useEffect(() => {
     if (!auth || initError) return;
     const initAuth = async () => {
-      try {
-        await signInAnonymously(auth);
-      } catch (error) {
-        console.error("Auth Error:", error);
-      }
+      try { await signInAnonymously(auth); } catch (error) { console.error("Auth Error:", error); }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
-  // Penentuan Path Dinamis
   const getSuratCollection = () => {
     if (isCanvas && auth && auth.currentUser) {
       return collection(db, 'artifacts', canvasAppId, 'users', auth.currentUser.uid, 'surat');
@@ -130,27 +114,45 @@ export default function App() {
     return collection(db, 'surat');
   };
 
-  // Load History Surat
-  const loadSurat = async () => {
+  const getSettingsDoc = (docName) => {
+    if (isCanvas && auth && auth.currentUser) {
+      return doc(db, 'artifacts', canvasAppId, 'settings', docName);
+    }
+    return doc(db, 'pengaturan_sekolah', docName);
+  };
+
+  const loadDataUtama = async () => {
     if (!db || !user || initError) return;
+    
+    // 1. Load History Surat
     try {
       const q = query(getSuratCollection(), where("createdBy", "==", user.uid));
       const snapshot = await getDocs(q);
-      
-      const data = snapshot.docs.map(document => ({
-        id: document.id,
-        ...document.data()
-      }));
-      
+      const data = snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
       data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
       setListSurat(data);
-    } catch (error) {
-      console.error("Gagal memuat histori:", error);
-    }
+    } catch (error) { console.error("Gagal memuat histori:", error); }
+
+    // 2. Load Logo & Master CSV
+    try {
+      const logoDoc = await getDoc(getSettingsDoc('logo_sekolah'));
+      if (logoDoc.exists()) {
+        const data = logoDoc.data();
+        if (data.image) setLogoUrl(data.image);
+        if (data.width !== undefined) setLogoWidth(data.width);
+        if (data.offsetX !== undefined) setLogoOffsetX(data.offsetX);
+        if (data.offsetY !== undefined) setLogoOffsetY(data.offsetY);
+      }
+      
+      const masterDoc = await getDoc(getSettingsDoc('master_data_csv'));
+      if (masterDoc.exists() && masterDoc.data().data) {
+        setMasterData(masterDoc.data().data);
+      }
+    } catch (error) { console.error("Gagal memuat pengaturan logo/CSV:", error); }
   };
 
   useEffect(() => {
-    if (user) loadSurat();
+    if (user) loadDataUtama();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -159,56 +161,112 @@ export default function App() {
     setTimeout(() => setNotification({ show: false, type: '', message: '' }), 3000);
   };
 
-  // Handler Konfigurasi Firebase Manual
-  const handleConfigChange = (e) => {
-    setTempConfig({ ...tempConfig, [e.target.name]: e.target.value });
-  };
-
+  const handleConfigChange = (e) => setTempConfig({ ...tempConfig, [e.target.name]: e.target.value });
   const simpanKonfigurasiManual = () => {
     localStorage.setItem('customFirebaseConfig', JSON.stringify(tempConfig));
     alert('Konfigurasi Firebase berhasil disimpan. Aplikasi akan dimuat ulang.');
     window.location.reload();
   };
-
   const resetKonfigurasiKeDefault = () => {
     localStorage.removeItem('customFirebaseConfig');
     alert('Konfigurasi dikembalikan ke default. Aplikasi akan dimuat ulang.');
     window.location.reload();
   };
 
-  // Fungsi Auto Nomor Surat
+  // UPLOAD LOGO (Preview Lokal)
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      setLogoUrl(event.target.result); // Update UI langsung
+    };
+    reader.readAsDataURL(file); // Konversi gambar ke text base64
+  };
+
+  // SIMPAN PENGATURAN LOGO KE FIREBASE
+  const simpanPengaturanLogo = async () => {
+    if (!db) { showNotification('error', 'Database belum terhubung.'); return; }
+    try {
+      await setDoc(getSettingsDoc('logo_sekolah'), { 
+        image: logoUrl,
+        width: logoWidth,
+        offsetX: logoOffsetX,
+        offsetY: logoOffsetY
+      });
+      showNotification('success', 'Pengaturan & Ukuran Logo permanen berhasil disimpan ke Firebase!');
+    } catch (error) {
+      console.error("Gagal save logo", error);
+      showNotification('error', 'Gagal menyimpan pengaturan logo ke database.');
+    }
+  };
+
+  // UPLOAD CSV KE FIREBASE
+  const handleCsvUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target.result;
+      const rows = text.split('\n').filter(row => row.trim() !== '');
+      
+      const parsedData = rows.map(row => {
+        // Pemisahan koma biasa, abaikan yang kosong
+        const cols = row.split(',').map(c => c.trim());
+        return { nama: cols[0] || '', tipe: cols[1] || '', keterangan: cols[2] || '' };
+      }).filter(item => item.nama && item.nama.toLowerCase() !== 'nama'); // Hilangkan baris header jika ada
+
+      setMasterData(parsedData);
+      
+      if (db) {
+        try {
+          await setDoc(getSettingsDoc('master_data_csv'), { data: parsedData });
+          showNotification('success', `Berhasil mengimpor ${parsedData.length} data master ke sistem!`);
+        } catch (error) {
+          console.error("Gagal save CSV", error);
+          showNotification('error', 'Gagal menyimpan data master ke database.');
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const downloadContohCSV = () => {
+    // Format wajib CSV dengan koma (masing-masing jadi kolom terpisah di Excel)
+    const csvContent = "Nama,Tipe Kategori,Keterangan/Kelas\nBunga Dinda Sabrina,Siswa,XII Keperawatan\nLae Isriyana Nur Laela S.Kep.,Guru,Guru Keperawatan\nNuryadin S.Sos. M.Pd.,Kepsek,Kepala Sekolah";
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "Format_Master_Data_SMK.csv");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const generateNomor = async (jenis) => {
     if(!db) return formData.nomorSurat;
     try {
         const snapshot = await getDocs(getSuratCollection()); 
         const total = snapshot.size + 1;
-        
         const date = new Date();
         const bulan = date.getMonth();
         const romawi = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
         const tahun = date.getFullYear();
-        
         let kode = 'ST';
         if (jenis === 'KETERANGAN') kode = 'SK';
         if (jenis === 'UNDANGAN') kode = 'SU';
         if (jenis === 'PERMOHONAN') kode = 'SP';
-        
         return `${String(total).padStart(3, "0")}/${kode}/${romawi[bulan]}/SMK-KES-PWR/${tahun}`;
-    } catch (e) {
-        return formData.nomorSurat; // fallback aman
-    }
+    } catch (e) { return formData.nomorSurat; }
   };
 
-  // Fungsi simpan data ke Firestore
   const handleSimpanFirebase = async () => {
-    if (initError || !db) {
-      showNotification('error', 'Sistem database bermasalah. Cek Pengaturan Firebase.');
-      return;
-    }
-    if (!user) {
-      showNotification('error', 'Anda belum terhubung ke sistem.');
-      return;
-    }
+    if (initError || !db) { showNotification('error', 'Sistem database bermasalah.'); return; }
+    if (!user) { showNotification('error', 'Anda belum terhubung ke sistem.'); return; }
     
     setIsSaving(true);
     try {
@@ -224,7 +282,6 @@ export default function App() {
       };
       
       const collRef = getSuratCollection();
-
       if (editingId) {
         await updateDoc(doc(collRef, editingId), dataToSave);
         showNotification('success', 'Berhasil memperbarui surat!');
@@ -234,21 +291,15 @@ export default function App() {
         await addDoc(collRef, dataToSave);
         showNotification('success', 'Berhasil disimpan ke Database!');
       }
-      loadSurat();
+      loadDataUtama();
     } catch (error) {
       console.error("Gagal menyimpan:", error);
-      showNotification('error', 'Gagal menyimpan. Periksa koneksi/aturan akses.');
-    } finally {
-      setIsSaving(false);
-    }
+      showNotification('error', 'Gagal menyimpan. Periksa aturan akses.');
+    } finally { setIsSaving(false); }
   };
 
-  // Handlers UI lainnya
   const handleEdit = (data) => {
-    setJenisSurat(data.jenisSurat);
-    setFormData(data.formData);
-    setPersonil(data.personil || []);
-    setEditingId(data.id);
+    setJenisSurat(data.jenisSurat); setFormData(data.formData); setPersonil(data.personil || []); setEditingId(data.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -256,26 +307,52 @@ export default function App() {
 
   const handleDelete = async (id) => {
     if (window.confirm("Yakin ingin menghapus surat ini permanen?")) {
-      try {
-        await deleteDoc(doc(getSuratCollection(), id));
-        showNotification('success', 'Surat berhasil dihapus.');
-        if (editingId === id) batalEdit();
-        loadSurat();
-      } catch (error) {
-        console.error("Gagal menghapus:", error);
-        showNotification('error', 'Terjadi kesalahan saat menghapus.');
-      }
+      try { await deleteDoc(doc(getSuratCollection(), id)); showNotification('success', 'Surat berhasil dihapus.'); if (editingId === id) batalEdit(); loadDataUtama(); } 
+      catch (error) { showNotification('error', 'Terjadi kesalahan saat menghapus.'); }
     }
   };
 
-  const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
-  const handlePersonilChange = (id, field, value) => setPersonil(personil.map(p => p.id === id ? { ...p, [field]: value } : p));
+  // Handler cerdas: jika memilih dari Autocomplete CSV, otomatis isi field relevannya
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    let updates = { [name]: value };
+
+    // Autofill jika ada di Master Data (Contoh: Nama di form keterangan)
+    if (name === 'namaKeterangan') {
+      const match = masterData.find(d => d.nama === value);
+      if (match) {
+        updates.kelasJabatanKeterangan = match.keterangan;
+      }
+    }
+
+    setFormData({ ...formData, ...updates });
+  };
+
+  const handlePersonilChange = (id, field, value) => {
+    setPersonil(personil.map(p => {
+      if (p.id === id) {
+        let updates = { ...p, [field]: value };
+        // Autofill untuk Personil
+        if (field === 'nama') {
+            const match = masterData.find(d => d.nama === value);
+            if (match) updates.jabatan = match.keterangan;
+        }
+        return updates;
+      }
+      return p;
+    }));
+  };
+
   const tambahPersonil = () => {
     const newId = personil.length > 0 ? Math.max(...personil.map(p => p.id)) + 1 : 1;
     setPersonil([...personil, { id: newId, nama: '', jabatan: '', keterangan: '' }]);
   };
   const hapusPersonil = (id) => setPersonil(personil.filter(p => p.id !== id));
   const handlePrint = () => window.print();
+
+  // Pisahkan Master Data untuk Datalist Autocomplete
+  const guruList = masterData.filter(d => d.tipe.toLowerCase().includes('guru') || d.tipe.toLowerCase().includes('kepsek'));
+  const siswaList = masterData.filter(d => d.tipe.toLowerCase().includes('siswa'));
 
   const renderFormFields = () => {
     switch (jenisSurat) {
@@ -296,16 +373,16 @@ export default function App() {
                 </button>
               </div>
               {personil.map((p, index) => (
-                <div key={p.id} className="mb-3 p-3 bg-white border border-gray-200 rounded relative">
+                <div key={p.id} className="mb-3 p-3 bg-white border border-gray-200 rounded relative shadow-sm">
                   <div className="absolute top-2 right-2 cursor-pointer text-red-500 hover:text-red-700" onClick={() => hapusPersonil(p.id)}>
                     <Trash2 size={16} />
                   </div>
-                  <input type="text" placeholder="Nama Lengkap & Gelar" value={p.nama} onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)} 
+                  <input type="text" placeholder="Nama Lengkap (Ketik untuk memunculkan saran)" list="guru-list" value={p.nama} onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)} 
                     className="w-full text-sm border border-gray-300 rounded-md p-2 mb-2" />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="text" placeholder="Jabatan/Guru..." value={p.jabatan} onChange={(e) => handlePersonilChange(p.id, 'jabatan', e.target.value)} 
                       className="w-full text-sm border border-gray-300 rounded-md p-2" />
-                    <input type="text" placeholder="Keterangan..." value={p.keterangan} onChange={(e) => handlePersonilChange(p.id, 'keterangan', e.target.value)} 
+                    <input type="text" placeholder="Keterangan Tgs..." value={p.keterangan} onChange={(e) => handlePersonilChange(p.id, 'keterangan', e.target.value)} 
                       className="w-full text-sm border border-gray-300 rounded-md p-2" />
                   </div>
                 </div>
@@ -343,8 +420,8 @@ export default function App() {
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nama (Siswa/Pegawai)</label>
-              <input type="text" name="namaKeterangan" value={formData.namaKeterangan} onChange={handleInputChange} 
-                className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" />
+              <input type="text" name="namaKeterangan" list="siswa-guru-list" value={formData.namaKeterangan} onChange={handleInputChange} 
+                className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Ketik nama (muncul saran CSV)..."/>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tempat, Tanggal Lahir</label>
@@ -651,19 +728,102 @@ export default function App() {
         @media print {
           body * { visibility: hidden; }
           #print-area, #print-area * { visibility: visible; }
-          #print-area {
-            position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; box-shadow: none;
-          }
+          #print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; box-shadow: none; }
           .no-print { display: none !important; }
           @page { size: 210mm 330mm; margin: 2cm; }
         }
       `}</style>
 
+      {/* DATALIST UNTUK AUTOCOMPLETE CSV */}
+      <datalist id="guru-list">
+        {guruList.map((g, i) => <option key={i} value={g.nama} />)}
+      </datalist>
+      <datalist id="siswa-guru-list">
+        {masterData.map((d, i) => <option key={i} value={d.nama} />)}
+      </datalist>
+
+      {/* MODAL UPLOAD DATA MASTER & LOGO */}
+      {showDataMasterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 className="text-xl font-bold flex items-center gap-2"><Database size={20}/> Kelola Data Sekolah</h2>
+                <button onClick={() => setShowDataMasterModal(false)} className="text-gray-500 hover:bg-gray-100 p-1 rounded-full"><X size={20}/></button>
+            </div>
+            
+            <div className="space-y-6">
+                {/* Bagian Upload & Setting Logo */}
+                <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">1. Logo Kop Surat</label>
+                    <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 px-4 rounded-md text-sm font-medium flex items-center justify-center gap-2 border border-blue-200 transition-colors w-full">
+                        <Upload size={16} /> Ganti File Logo
+                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                    </label>
+                    
+                    {/* SLIDER PENGATURAN LOGO */}
+                    <div className="border border-gray-200 rounded-md p-4 bg-gray-50 mb-2 mt-4 shadow-inner">
+                        <h3 className="text-sm font-bold mb-3 text-gray-800">Atur Posisi & Ukuran Logo</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-600 font-semibold mb-1">
+                                    <label>Ukuran Logo</label>
+                                    <span>{logoWidth} px</span>
+                                </div>
+                                <input type="range" min="40" max="250" value={logoWidth} onChange={(e) => setLogoWidth(Number(e.target.value))} className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-600 font-semibold mb-1">
+                                    <label>Geser Kanan / Kiri</label>
+                                    <span>{logoOffsetX} px</span>
+                                </div>
+                                <input type="range" min="-150" max="150" value={logoOffsetX} onChange={(e) => setLogoOffsetX(Number(e.target.value))} className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-600 font-semibold mb-1">
+                                    <label>Geser Atas / Bawah</label>
+                                    <span>{logoOffsetY} px</span>
+                                </div>
+                                <input type="range" min="-100" max="100" value={logoOffsetY} onChange={(e) => setLogoOffsetY(Number(e.target.value))} className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+                            </div>
+                        </div>
+                        <button onClick={simpanPengaturanLogo} disabled={!logoUrl} className="mt-5 w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-400 text-white py-2 rounded-md text-sm font-bold transition-colors flex justify-center items-center gap-2 shadow-sm">
+                            <Save size={16} /> Simpan Pengaturan Logo
+                        </button>
+                    </div>
+                    <p className="text-xs text-gray-500 text-center italic">*Klik 'Simpan Pengaturan Logo' agar perubahan ukuran dan posisi tersimpan permanen.</p>
+                </div>
+
+                <div className="border-t border-gray-200 pt-5">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">2. Upload Data Master CSV (Siswa & Guru)</label>
+                    <p className="text-xs text-gray-600 mb-3 text-justify">
+                        Upload file berekstensi <b>.csv</b> agar saat mengetik nama di form surat, jabatan atau kelasnya terisi otomatis. 
+                        Pastikan file berisi 3 kolom terpisah (koma) dengan format: <b>Nama, Kategori, Jabatan/Kelas</b>.
+                    </p>
+                    
+                    <div className="flex flex-col gap-2">
+                        <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 px-4 rounded-md text-sm font-medium flex items-center justify-center gap-2 border border-blue-200 transition-colors w-full">
+                            <Database size={16} /> Import File CSV
+                            <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
+                        </label>
+                        <button onClick={downloadContohCSV} className="text-sm flex items-center justify-center gap-1 bg-gray-100 text-gray-700 px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-200 transition-colors w-full">
+                            <Download size={16} /> Download Contoh Format CSV
+                        </button>
+                    </div>
+                    {masterData.length > 0 && (
+                        <p className="text-xs text-green-600 mt-3 font-semibold text-center bg-green-50 p-2 rounded border border-green-200">✓ {masterData.length} Data nama (Siswa & Guru) tersimpan di sistem.</p>
+                    )}
+                </div>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
       {/* MODAL PENGATURAN FIREBASE */}
       {showFirebaseSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Settings size={20}/> Pengaturan Database Firebase</h2>
+            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Settings size={20}/> Pengaturan API Firebase</h2>
             <p className="text-sm text-gray-600 mb-6">Ubah konfigurasi di bawah ini jika Anda ingin menyambungkan aplikasi ini ke project Firebase lain.</p>
             
             {Object.keys(DEFAULT_FIREBASE_CONFIG).map((key) => (
@@ -675,7 +835,6 @@ export default function App() {
                   value={tempConfig[key] || ''} 
                   onChange={handleConfigChange} 
                   className="w-full text-sm border border-gray-300 p-2 rounded focus:ring-blue-500 focus:border-blue-500 font-mono" 
-                  placeholder={`Masukkan ${key}...`}
                 />
               </div>
             ))}
@@ -706,9 +865,14 @@ export default function App() {
                 <FileText className="text-blue-600" size={24} />
                 <h2 className="text-xl font-bold text-gray-800">Aplikasi Surat Sekolah</h2>
             </div>
-            <button onClick={() => setShowFirebaseSettings(true)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors" title="Pengaturan Database">
-                <Settings size={20} />
-            </button>
+            <div className="flex gap-2">
+                <button onClick={() => setShowDataMasterModal(true)} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-full transition-colors" title="Data Sekolah & Logo">
+                    <Database size={20} />
+                </button>
+                <button onClick={() => setShowFirebaseSettings(true)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors" title="Pengaturan Database">
+                    <Settings size={20} />
+                </button>
+            </div>
           </div>
 
           {initError && (
@@ -716,7 +880,7 @@ export default function App() {
                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
                  <div>
                      <strong>Koneksi Database Gagal!</strong><br/>
-                     Konfigurasi Firebase tidak valid. Silakan klik ikon gear (⚙️) di atas untuk memperbaiki API Key.
+                     Konfigurasi Firebase tidak valid. Silakan klik ikon gear (⚙️) di atas.
                  </div>
              </div>
           )}
@@ -754,7 +918,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nama Kepala Sekolah</label>
-                  <input type="text" name="kepalaSekolah" value={formData.kepalaSekolah} onChange={handleInputChange} 
+                  <input type="text" name="kepalaSekolah" list="guru-list" value={formData.kepalaSekolah} onChange={handleInputChange} 
                     className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500 bg-white" />
                 </div>
               </div>
@@ -826,22 +990,26 @@ export default function App() {
             
             {/* Kop Surat (Universal) */}
             <div className="flex items-center border-b-[3px] border-double border-black pb-4 mb-6">
-              {/* Tempat Logo */}
-              <div className="w-24 h-24 flex-shrink-0 flex items-center justify-center">
-                <img 
-                  src={LOGO_URL} 
-                  alt="Logo SMK" 
-                  className="max-w-full max-h-full object-contain"
-                  onError={(e) => { 
-                    e.target.onerror = null; 
-                    e.target.style.display = 'none'; 
-                    e.target.parentElement.innerHTML = '<div style="width: 80px; height: 80px; border: 2px dashed #cbd5e1; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #94a3b8; text-align: center;">Logo<br/>Hilang</div>';
-                  }}
-                />
+              {/* Tempat Logo (Lebar tetap agar teks di tengah tidak bergeser, gambar di dalamnya yang diatur) */}
+              <div className="w-[120px] flex-shrink-0 flex items-center justify-center relative">
+                {logoUrl ? (
+                    <img 
+                      src={logoUrl} 
+                      alt="Logo SMK" 
+                      style={{
+                        width: `${logoWidth}px`,
+                        height: 'auto',
+                        maxWidth: 'none', // Override tailwind agar bisa diperbesar lebih dari kontainer
+                        transform: `translate(${logoOffsetX}px, ${logoOffsetY}px)`
+                      }}
+                    />
+                ) : (
+                    <div style={{width: '80px', height: '80px', border: '2px dashed #cbd5e1', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#94a3b8', textAlign: 'center'}}>Logo<br/>Belum Ada</div>
+                )}
               </div>
 
               {/* Teks Kop Surat */}
-              <div className="flex-1 text-center px-2">
+              <div className="flex-1 text-center px-2 relative z-10">
                 <h3 className="text-base font-bold m-0 leading-tight">YAYASAN BINA TANI BAGELEN PURWOREJO</h3>
                 <h2 className="text-2xl font-bold m-0 leading-tight">SMK KESEHATAN PURWOREJO</h2>
                 <p className="text-sm font-bold m-0 leading-tight">STATUS : TERAKREDITASI A</p>
@@ -852,7 +1020,7 @@ export default function App() {
               </div>
 
               {/* Spacer agar teks seimbang di tengah */}
-              <div className="w-24 flex-shrink-0"></div>
+              <div className="w-[120px] flex-shrink-0 relative z-0"></div>
             </div>
 
             {/* Body Surat Berubah Berdasarkan Tab */}
@@ -874,7 +1042,6 @@ export default function App() {
   );
 }
 
-// Icon Tambahan sederhana untuk tab
 function BriefcaseIcon({size}) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
