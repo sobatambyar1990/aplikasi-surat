@@ -44,6 +44,21 @@ try {
   initError = error.message;
 }
 
+// ✅ FUNGSI CEK APAKAH DATA ADALAH GURU/STAF (lebih fleksibel)
+const isGuru = (tipe) => {
+  const t = (tipe || '').toLowerCase();
+  return t.includes('guru') || t.includes('kepsek') || t.includes('kepala') ||
+    t.includes('staf') || t.includes('staff') || t.includes('pegawai') ||
+    t.includes('tendik') || t.includes('tu ') || t.includes('tata usaha') ||
+    t.includes('waka') || t.includes('bendahara') || t.includes('operator');
+};
+
+// ✅ FUNGSI CEK APAKAH DATA ADALAH SISWA (lebih fleksibel)
+const isSiswa = (tipe) => {
+  const t = (tipe || '').toLowerCase();
+  return t.includes('siswa') || t.includes('murid') || t.includes('pelajar') || t.includes('peserta didik');
+};
+
 export default function App() {
   const [jenisSurat, setJenisSurat] = useState('TUGAS');
   const [logoUrl, setLogoUrl] = useState('');
@@ -186,10 +201,7 @@ export default function App() {
         if (db) {
           try {
             await setDoc(getSettingsDoc('logo_sekolah'), {
-              image: compressedBase64,
-              width: logoWidth,
-              offsetX: logoOffsetX,
-              offsetY: logoOffsetY
+              image: compressedBase64, width: logoWidth, offsetX: logoOffsetX, offsetY: logoOffsetY
             }, { merge: true });
             showNotification('success', 'Logo berhasil diunggah & tersimpan di database!');
           } catch (error) {
@@ -206,10 +218,7 @@ export default function App() {
     if (!db) { showNotification('error', 'Database belum terhubung.'); return; }
     try {
       await setDoc(getSettingsDoc('logo_sekolah'), {
-        image: logoUrl,
-        width: logoWidth,
-        offsetX: logoOffsetX,
-        offsetY: logoOffsetY
+        image: logoUrl, width: logoWidth, offsetX: logoOffsetX, offsetY: logoOffsetY
       }, { merge: true });
       showNotification('success', 'Ukuran & Posisi Logo berhasil disimpan!');
     } catch (error) {
@@ -217,7 +226,6 @@ export default function App() {
     }
   };
 
-  // ✅ SUDAH DIPERBAIKI: Upload CSV MENGGABUNGKAN data lama + baru, tidak menimpa
   const handleCsvUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -235,7 +243,6 @@ export default function App() {
         };
       }).filter(item => item.nama && item.nama.toLowerCase() !== 'nama');
 
-      // ✅ GABUNGKAN data lama + data baru, hapus duplikat berdasarkan nama
       const dataGabungan = [...masterData, ...parsedData].reduce((acc, current) => {
         const isDuplicate = acc.find(item => item.nama.toLowerCase() === current.nama.toLowerCase());
         if (!isDuplicate) acc.push(current);
@@ -247,7 +254,10 @@ export default function App() {
       if (db) {
         try {
           await setDoc(getSettingsDoc('master_data_csv'), { data: dataGabungan });
-          showNotification('success', `Berhasil! Total ${dataGabungan.length} data tersimpan (siswa + guru digabung).`);
+          // ✅ Hitung menggunakan fungsi isGuru/isSiswa yang fleksibel
+          const jumlahGuru = dataGabungan.filter(d => isGuru(d.tipe)).length;
+          const jumlahSiswa = dataGabungan.filter(d => isSiswa(d.tipe)).length;
+          showNotification('success', `Berhasil! Total ${dataGabungan.length} data (Siswa: ${jumlahSiswa}, Guru/Staf: ${jumlahGuru}).`);
         } catch (error) {
           showNotification('error', 'Gagal menyimpan data master ke database.');
         }
@@ -256,7 +266,6 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // ✅ FITUR BARU: Hapus semua data master
   const hapusSemuaData = async () => {
     if (window.confirm("Yakin ingin menghapus SEMUA data siswa & guru? Tindakan ini tidak bisa dibatalkan.")) {
       setMasterData([]);
@@ -275,8 +284,7 @@ export default function App() {
     const csvContent = "\uFEFFNama;Kategori;NIS/NIP;Jabatan/Kelas\nBunga Dinda Sabrina;Siswa;212210001;XII Keperawatan\nLae Isriyana Nur Laela S.Kep.;Guru;199001012020122001;Guru Keperawatan\nNuryadin S.Sos. M.Pd.;Kepsek;198001012010121001;Kepala Sekolah";
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
+    link.setAttribute("href", URL.createObjectURL(blob));
     link.setAttribute("download", "Format_Master_Data_SMK.csv");
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
@@ -384,8 +392,10 @@ export default function App() {
   const hapusPersonil = (id) => setPersonil(personil.filter(p => p.id !== id));
   const handlePrint = () => window.print();
 
-  const guruList = masterData.filter(d => d.tipe.toLowerCase().includes('guru') || d.tipe.toLowerCase().includes('kepsek'));
-  const siswaList = masterData.filter(d => d.tipe.toLowerCase().includes('siswa'));
+  // ✅ FILTER MENGGUNAKAN FUNGSI isGuru dan isSiswa YANG LEBIH FLEKSIBEL
+  const guruList = masterData.filter(d => isGuru(d.tipe));
+  const siswaList = masterData.filter(d => isSiswa(d.tipe));
+  const lainnyaList = masterData.filter(d => !isGuru(d.tipe) && !isSiswa(d.tipe));
 
   const renderFormFields = () => {
     switch (jenisSurat) {
@@ -403,7 +413,9 @@ export default function App() {
             {personil.map((p) => (
               <div key={p.id} className="mb-3 p-3 bg-white border border-gray-200 rounded relative shadow-sm">
                 <div className="absolute top-2 right-2 cursor-pointer text-red-500 hover:text-red-700" onClick={() => hapusPersonil(p.id)}><Trash2 size={16} /></div>
-                <input type="text" placeholder="Ketik/Pilih Nama Guru..." list="guru-list" value={p.nama} onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)}
+                {/* ✅ Hanya tampilkan nama GURU di autocomplete Surat Tugas */}
+                <input type="text" placeholder="Ketik/Pilih Nama Guru..." list="guru-list" value={p.nama}
+                  onChange={(e) => handlePersonilChange(p.id, 'nama', e.target.value)}
                   className="w-full text-sm border border-gray-300 rounded-md p-2 mb-2 bg-yellow-50 focus:bg-white transition-colors" />
                 <div className="grid grid-cols-2 gap-2">
                   <input type="text" placeholder="Jabatan Otomatis..." value={p.jabatan} onChange={(e) => handlePersonilChange(p.id, 'jabatan', e.target.value)} className="w-full text-sm border border-gray-300 rounded-md p-2" />
@@ -427,6 +439,7 @@ export default function App() {
         <>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Nama (Siswa/Pegawai)</label>
+            {/* ✅ Surat Keterangan menampilkan semua (siswa + guru) */}
             <input type="text" name="namaKeterangan" list="siswa-guru-list" value={formData.namaKeterangan} onChange={handleInputChange}
               className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500 bg-yellow-50 focus:bg-white transition-colors" placeholder="Ketik nama (Identitas & Kelas otomatis isi)..." />
           </div>
@@ -557,7 +570,7 @@ export default function App() {
         }
       `}</style>
 
-      {/* DATALIST AUTOCOMPLETE */}
+      {/* ✅ DATALIST: guru-list HANYA berisi guru, siswa-guru-list berisi semua */}
       <datalist id="guru-list">
         {guruList.map((g, i) => <option key={i} value={g.nama} />)}
       </datalist>
@@ -575,7 +588,6 @@ export default function App() {
             </div>
 
             <div className="space-y-6">
-              {/* Logo */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">1. Logo Kop Surat</label>
                 <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 px-4 rounded-md text-sm font-medium flex items-center justify-center gap-2 border border-blue-200 transition-colors w-full">
@@ -605,20 +617,40 @@ export default function App() {
                 <p className="text-xs text-gray-500 text-center italic mt-2">*Klik 'Simpan Pengaturan Logo' agar perubahan tersimpan permanen.</p>
               </div>
 
-              {/* CSV */}
               <div className="border-t border-gray-200 pt-5">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">2. Upload Data Master CSV (Siswa & Guru)</label>
-                <p className="text-xs text-gray-600 mb-3 text-justify">
+                <p className="text-xs text-gray-600 mb-1 text-justify">
                   Upload file <b>.csv</b> berisi 4 kolom: <b>Nama; Kategori; NIS/NIP; Jabatan/Kelas</b>.
-                  Upload CSV siswa dan guru secara terpisah — data akan <b>digabungkan otomatis</b>, tidak saling menimpa.
+                  Upload CSV siswa dan guru terpisah — data akan digabungkan otomatis.
                 </p>
 
-                {/* ✅ INFO JUMLAH DATA PER KATEGORI */}
+                {/* ✅ KETERANGAN FORMAT KATEGORI */}
+                <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  <b>Kategori yang dikenali sistem:</b><br />
+                  🟦 <b>Guru/Staf</b>: guru, kepsek, kepala, staf, staff, pegawai, tendik, waka, bendahara<br />
+                  🟩 <b>Siswa</b>: siswa, murid, pelajar, peserta didik
+                </div>
+
+                {/* ✅ INFO JUMLAH DATA */}
                 {masterData.length > 0 && (
                   <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-md text-xs text-green-700 font-semibold">
-                    ✓ Total data tersimpan: <b>{masterData.length}</b> orang
-                    &nbsp;|&nbsp; Siswa: <b>{siswaList.length}</b>
-                    &nbsp;|&nbsp; Guru/Staf: <b>{guruList.length}</b>
+                    ✓ Total: <b>{masterData.length}</b> orang
+                    &nbsp;|&nbsp; 🟩 Siswa: <b>{siswaList.length}</b>
+                    &nbsp;|&nbsp; 🟦 Guru/Staf: <b>{guruList.length}</b>
+                    {lainnyaList.length > 0 && <>&nbsp;|&nbsp; ⬜ Belum terdeteksi: <b>{lainnyaList.length}</b></>}
+                  </div>
+                )}
+
+                {/* ✅ TAMPILKAN NAMA YANG BELUM TERDETEKSI KATEGORINYA */}
+                {lainnyaList.length > 0 && (
+                  <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                    <b>⚠️ Data berikut kategorinya belum dikenali (periksa kolom Kategori di CSV):</b>
+                    <ul className="mt-1 list-disc list-inside">
+                      {lainnyaList.slice(0, 5).map((d, i) => (
+                        <li key={i}>{d.nama} — kategori: "<b>{d.tipe}</b>"</li>
+                      ))}
+                      {lainnyaList.length > 5 && <li>...dan {lainnyaList.length - 5} lainnya</li>}
+                    </ul>
                   </div>
                 )}
 
@@ -630,7 +662,6 @@ export default function App() {
                   <button onClick={downloadContohCSV} className="text-sm flex items-center justify-center gap-1 bg-gray-100 text-gray-700 px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-200 transition-colors w-full">
                     <Download size={16} /> Download Contoh Format CSV
                   </button>
-                  {/* ✅ TOMBOL HAPUS SEMUA DATA */}
                   {masterData.length > 0 && (
                     <button onClick={hapusSemuaData} className="text-sm flex items-center justify-center gap-1 bg-red-50 text-red-600 px-3 py-2 rounded-md border border-red-200 hover:bg-red-100 transition-colors w-full">
                       <Trash2 size={16} /> Hapus Semua Data Master
@@ -665,8 +696,6 @@ export default function App() {
       )}
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-        {/* PANEL KIRI */}
         <div className="lg:col-span-5 bg-white rounded-xl shadow-lg p-6 h-fit no-print">
           <div className="flex items-center justify-between gap-2 mb-6 border-b pb-4">
             <div className="flex items-center gap-2"><FileText className="text-blue-600" size={24} /><h2 className="text-xl font-bold text-gray-800">Aplikasi Surat Sekolah</h2></div>
@@ -747,7 +776,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* PANEL KANAN: PREVIEW */}
         <div className="lg:col-span-7 overflow-auto flex justify-center pb-10">
           <div id="print-area" className="bg-white shadow-xl w-[210mm] min-h-[330mm] p-10 text-black mx-auto shrink-0 relative" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
             <div className="flex items-center border-b-[3px] border-double border-black pb-4 mb-6">
@@ -769,9 +797,7 @@ export default function App() {
               </div>
               <div className="w-[120px] flex-shrink-0"></div>
             </div>
-
             {renderPrintBody()}
-
             <div className="flex justify-end text-sm">
               <div className="text-center w-64">
                 <p className="m-0">Purworejo, {formData.tanggalSurat}</p>
